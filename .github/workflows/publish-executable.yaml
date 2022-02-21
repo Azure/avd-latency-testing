@@ -23,5 +23,5 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: run-test
-          path: "$DOTNET_PUBLISH_DIRECTORY_PATH"
+          path: ${{ env.DOTNET_PUBLISH_DIRECTORY_PATH }}
           if-no-files-found: error
