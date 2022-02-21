@@ -9,7 +9,7 @@ jobs:
     env:
       DOTNET_VERSION: 6.x
       DOTNET_CONFIGURATION: Release
-      DOTNET_PUBLISH_DIRECTORY_PATH: "$GITHUB_WORKSPACE/code/bin/dotnet-publish"
+      DOTNET_PUBLISH_DIRECTORY_PATH: "${{ env.GITHUB_WORKSPACE }}/code/bin/dotnet-publish"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
