@@ -143,12 +143,8 @@ internal sealed class TestingService : IAsyncDisposable
             logger.LogInformation("Navigating to site...");
             driver.Navigate().GoToUrl("https://azure.microsoft.com/en-us/services/virtual-desktop/assessment/#estimation-tool");
 
-            logger.LogInformation("Getting azure-regions text...");
-            logger.LogInformation(driver.FindElement(By.Id("azure-regions")).GetAttribute("outerHTML"));
-
+            logger.LogInformation("Getting regions from site...");
             return GetRegionLatencies(driver);
-
-            //return new WebDriverWait(driver, TimeSpan.FromSeconds(20)).Until(GetRegionLatencies, cancellationToken);
         }
         catch (Exception exception)
         {
