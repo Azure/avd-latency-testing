@@ -1,26 +1,80 @@
 ﻿using CsvHelper;
+using Microsoft.ApplicationInsights;
+using Microsoft.ApplicationInsights.DataContracts;
+using Microsoft.ApplicationInsights.Extensibility;
 using Microsoft.Win32;
 using Nito.AsyncEx;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Edge;
-using OpenQA.Selenium.Support.UI;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.IO.Compression;
 
 namespace run_test;
 
-internal sealed class TestingService : IAsyncDisposable
+internal sealed class TestingService : BackgroundService, IAsyncDisposable
 {
+    private readonly IOperationHolder<RequestTelemetry> telemetryOperation;
     private readonly ILogger logger;
+    private readonly TimeSpan delayPerRun;
+    private readonly TelemetryClient telemetryClient;
     private readonly FileInfo csvFile;
     private readonly AsyncLazy<(EdgeDriverService, Action)> lazyEdgeDriverService;
 
-    public TestingService(ILogger<TestingService> logger, IConfiguration configuration, IHttpClientFactory httpClientFactory)
+    public TestingService(ILogger<TestingService> logger, IConfiguration configuration, IHttpClientFactory httpClientFactory, TelemetryClient telemetryClient)
     {
+        this.telemetryOperation = telemetryClient.StartOperation<RequestTelemetry>("AVD test");
         this.logger = logger;
+        this.delayPerRun = GetDelayPerRun(configuration);
+        this.telemetryClient = telemetryClient;
         this.csvFile = GetCsvFile(configuration);
         this.lazyEdgeDriverService = GetLazyEdgeDriverService(logger, httpClientFactory, configuration);
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                logger.LogInformation("Beginning execution...");
+
+                await Run(cancellationToken);
+
+                logger.LogInformation("Finished execution, sleeping until {nextRunTime}...", DateTimeOffset.Now.Add(delayPerRun));
+                await Task.Delay(delayPerRun, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Don't throw if operation was canceled
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "");
+            throw;
+        }
+        finally
+        {
+            var (_, cleanupAction) = await lazyEdgeDriverService;
+            cleanupAction();
+
+            telemetryClient.StopOperation(telemetryOperation);
+            await telemetryClient.FlushAsync(CancellationToken.None);
+            await Task.Delay(TimeSpan.FromSeconds(5), CancellationToken.None);
+        }
+    }
+
+    private static TimeSpan GetDelayPerRun(IConfiguration configuration)
+    {
+        var defaultDelay = TimeSpan.FromMinutes(5);
+        var section = configuration.GetSection("DELAY_PER_RUN_IN_SECONDS");
+
+        return section.Exists()
+            ? int.TryParse(section.Value, out var seconds)
+                ? TimeSpan.FromSeconds(seconds)
+                : defaultDelay
+            : defaultDelay;
     }
 
     private static FileInfo GetCsvFile(IConfiguration configuration)
@@ -242,10 +296,11 @@ internal sealed class TestingService : IAsyncDisposable
     {
         if (lazyEdgeDriverService.IsStarted)
         {
-            (var service, var cleanupAction) = await lazyEdgeDriverService;
+            var (service, _) = await lazyEdgeDriverService;
             service.Dispose();
-            cleanupAction();
         }
+
+        telemetryOperation.Dispose();
 
         GC.SuppressFinalize(this);
     }
